@@ -25,9 +25,9 @@ CREATE INDEX IF NOT EXISTS idx_sibo_status ON sibo_produkty(status);
 -- 3. Tabela zgłoszeń z formularza pacjentów
 CREATE TABLE IF NOT EXISTS zgloszenia (
     id SERIAL PRIMARY KEY,
-    email VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NULL,
     dolegliwosci_ids INTEGER[] NOT NULL,
     pdf_path VARCHAR(255) NULL,
-    status_wysylki VARCHAR(50) DEFAULT 'wyslano',
+    status VARCHAR(50) DEFAULT 'wygenerowano',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
