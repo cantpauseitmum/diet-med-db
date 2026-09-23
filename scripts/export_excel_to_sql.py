@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import glob
 import os
+import shutil
 import openpyxl
 
 def generate_schema_sql(output_path):
@@ -40,7 +41,20 @@ CREATE TABLE IF NOT EXISTS hashimoto_produkty (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hashimoto_rodzaj ON hashimoto_produkty(rodzaj);
 CREATE INDEX IF NOT EXISTS idx_hashimoto_status ON hashimoto_produkty(status);
 
--- 4. Tabela zgłoszeń z formularza pacjentów
+-- 4. Tabela produktów dla Insulinooporności
+DROP TABLE IF EXISTS insulinoopornosc_produkty CASCADE;
+CREATE TABLE IF NOT EXISTS insulinoopornosc_produkty (
+    id SERIAL PRIMARY KEY,
+    rodzaj VARCHAR(255) NOT NULL UNIQUE,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('dozwolone', 'umiarkowane', 'zakazane')),
+    ilosc NUMERIC(10, 2) NULL,
+    jednostka VARCHAR(50) NULL,
+    komentarz TEXT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_insulinoopornosc_rodzaj ON insulinoopornosc_produkty(rodzaj);
+CREATE INDEX IF NOT EXISTS idx_insulinoopornosc_status ON insulinoopornosc_produkty(status);
+
+-- 5. Tabela zgłoszeń z formularza pacjentów
 CREATE TABLE IF NOT EXISTS zgloszenia (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) NULL,
@@ -107,6 +121,9 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
             status = "umiarkowane"
         elif vals[3] and str(vals[3]).strip().lower() == "x":
             status = "zakazane"
+        elif any(vals[4:7]):
+            # Jeśli produkt ma ilość/jednostkę/komentarz bez 'x', to z definicji warunkowość -> umiarkowane
+            status = "umiarkowane"
         
         if not status:
             continue
@@ -204,6 +221,7 @@ if __name__ == "__main__":
     
     sibo_candidates = [f for f in glob.glob(os.path.join(root_dir, "*SIBO*.xlsx")) if not f.endswith(".bak")]
     hashimoto_candidates = [f for f in glob.glob(os.path.join(root_dir, "*Hashimoto*.xlsx")) if not f.endswith(".bak")]
+    io_candidates = [f for f in glob.glob(os.path.join(root_dir, "*insulino*.xlsx")) if not f.endswith(".bak")]
     
     init_dir = os.path.join(base_dir, "init-scripts")
     os.makedirs(init_dir, exist_ok=True)
@@ -216,3 +234,13 @@ if __name__ == "__main__":
         
     if hashimoto_candidates:
         generate_table_sql(hashimoto_candidates[0], "hashimoto_produkty", "Hashimoto", os.path.join(init_dir, "04_seed_hashimoto.sql"))
+
+    if io_candidates:
+        generate_table_sql(io_candidates[0], "insulinoopornosc_produkty", "Insulinooporność", os.path.join(init_dir, "05_seed_insulinoopornosc.sql"))
+
+    # Kopiowanie do backend/app/seeds
+    backend_seeds_dir = os.path.join(root_dir, "diet-med-backend", "app", "seeds")
+    if os.path.exists(backend_seeds_dir):
+        for f in glob.glob(os.path.join(init_dir, "*.sql")):
+            shutil.copy2(f, backend_seeds_dir)
+        print(f"Copied all seed scripts to {backend_seeds_dir}")
