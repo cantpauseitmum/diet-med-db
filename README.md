@@ -6,10 +6,12 @@ Kontener bazy danych PostgreSQL 16 dla projektu **Diet-Med**, zoptymalizowany do
 - `init-scripts/01_init_schema.sql` – definicja tabel:
   - `dolegliwosci`: kolumny `id` (PK), `kod` (NOT NULL UNIQUE)
   - `sibo_produkty`: kolumny `id` (PK), `rodzaj` (NOT NULL), `status` (NOT NULL), `ilosc` (NULL), `jednostka` (NULL), `komentarz` (NULL)
+  - `hashimoto_produkty`: kolumny `id` (PK), `rodzaj` (NOT NULL), `status` (NOT NULL), `ilosc` (NULL), `jednostka` (NULL), `komentarz` (NULL)
   - `zgloszenia`: rejestracja zgłoszeń pacjentów z formularza TDP
 - `init-scripts/02_seed_tdp.sql` – 12 dolegliwości z TDP
-- `init-scripts/03_seed_sibo.sql` – pełna baza 303 produktów SIBO z ujednoliconymi komentarzami
-- `scripts/export_excel_to_sql.py` – skrypt do ewentualnej ponownej generacji plików SQL z pliku Excela
+- `init-scripts/03_seed_sibo.sql` – pełna baza 354 produktów SIBO z ujednoliconymi komentarzami
+- `init-scripts/04_seed_hashimoto.sql` – pełna baza 354 produktów Hashimoto z ujednoliconymi komentarzami
+- `scripts/export_excel_to_sql.py` – skrypt do generacji plików SQL z plików Excela (SIBO i Hashimoto)
 - `Dockerfile` – obraz oparty o `postgres:16-alpine`
 
 ## Uruchomienie lokalne (Docker)
