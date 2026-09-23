@@ -89,16 +89,12 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
     
     rows = []
     for r in range(3, ws.max_row + 1):
-        # Sprawdzamy czy to wiersz kategorii (bold)
-        if ws.cell(r, 1).font and ws.cell(r, 1).font.bold:
-            continue
-            
         vals = [ws.cell(r, c).value for c in range(1, 8)]
         name = str(vals[0]).strip() if vals[0] is not None else ""
         if not name:
             continue
             
-        # Jeśli tylko kolumna 1 ma wartość, to kategoria
+        # Jeśli tylko kolumna 1 ma wartość, to nagłówek kategorii
         if not any(vals[1:]):
             continue
         

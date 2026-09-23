@@ -1,5 +1,5 @@
 -- =========================================================
--- Wypełnienie tabeli produktów Hashimoto (354 wierszy)
+-- Wypełnienie tabeli produktów Hashimoto (355 wierszy)
 -- =========================================================
 DROP TABLE IF EXISTS hashimoto_produkty CASCADE;
 CREATE TABLE IF NOT EXISTS hashimoto_produkty (
@@ -14,6 +14,7 @@ CREATE INDEX IF NOT EXISTS idx_hashimoto_produkty_rodzaj ON hashimoto_produkty(r
 CREATE INDEX IF NOT EXISTS idx_hashimoto_produkty_status ON hashimoto_produkty(status);
 
 INSERT INTO hashimoto_produkty (rodzaj, status, ilosc, jednostka, komentarz) VALUES
+('pieczywo', 'zakazane', NULL, NULL, NULL),
 ('pieczywo pszenne zwykłe białe', 'zakazane', NULL, NULL, NULL),
 ('pieczywo pszenne pełnoziarniste', 'zakazane', NULL, NULL, NULL),
 ('pieczywo mieszane (pszenno-żytnie) zwykłe białe', 'zakazane', NULL, NULL, NULL),
