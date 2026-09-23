@@ -12,26 +12,26 @@ CREATE TABLE IF NOT EXISTS dolegliwosci (
 DROP TABLE IF EXISTS sibo_produkty CASCADE;
 CREATE TABLE IF NOT EXISTS sibo_produkty (
     id SERIAL PRIMARY KEY,
-    rodzaj VARCHAR(255) NOT NULL,
+    rodzaj VARCHAR(255) NOT NULL UNIQUE,
     status VARCHAR(20) NOT NULL CHECK (status IN ('dozwolone', 'umiarkowane', 'zakazane')),
     ilosc NUMERIC(10, 2) NULL,
     jednostka VARCHAR(50) NULL,
     komentarz TEXT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_sibo_rodzaj ON sibo_produkty(rodzaj);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sibo_rodzaj ON sibo_produkty(rodzaj);
 CREATE INDEX IF NOT EXISTS idx_sibo_status ON sibo_produkty(status);
 
 -- 3. Tabela produktów dla Hashimoto
 DROP TABLE IF EXISTS hashimoto_produkty CASCADE;
 CREATE TABLE IF NOT EXISTS hashimoto_produkty (
     id SERIAL PRIMARY KEY,
-    rodzaj VARCHAR(255) NOT NULL,
+    rodzaj VARCHAR(255) NOT NULL UNIQUE,
     status VARCHAR(20) NOT NULL CHECK (status IN ('dozwolone', 'umiarkowane', 'zakazane')),
     ilosc NUMERIC(10, 2) NULL,
     jednostka VARCHAR(50) NULL,
     komentarz TEXT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_hashimoto_rodzaj ON hashimoto_produkty(rodzaj);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hashimoto_rodzaj ON hashimoto_produkty(rodzaj);
 CREATE INDEX IF NOT EXISTS idx_hashimoto_status ON hashimoto_produkty(status);
 
 -- 4. Tabela zgłoszeń z formularza pacjentów

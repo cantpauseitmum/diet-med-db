@@ -18,26 +18,26 @@ CREATE TABLE IF NOT EXISTS dolegliwosci (
 DROP TABLE IF EXISTS sibo_produkty CASCADE;
 CREATE TABLE IF NOT EXISTS sibo_produkty (
     id SERIAL PRIMARY KEY,
-    rodzaj VARCHAR(255) NOT NULL,
+    rodzaj VARCHAR(255) NOT NULL UNIQUE,
     status VARCHAR(20) NOT NULL CHECK (status IN ('dozwolone', 'umiarkowane', 'zakazane')),
     ilosc NUMERIC(10, 2) NULL,
     jednostka VARCHAR(50) NULL,
     komentarz TEXT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_sibo_rodzaj ON sibo_produkty(rodzaj);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sibo_rodzaj ON sibo_produkty(rodzaj);
 CREATE INDEX IF NOT EXISTS idx_sibo_status ON sibo_produkty(status);
 
 -- 3. Tabela produktów dla Hashimoto
 DROP TABLE IF EXISTS hashimoto_produkty CASCADE;
 CREATE TABLE IF NOT EXISTS hashimoto_produkty (
     id SERIAL PRIMARY KEY,
-    rodzaj VARCHAR(255) NOT NULL,
+    rodzaj VARCHAR(255) NOT NULL UNIQUE,
     status VARCHAR(20) NOT NULL CHECK (status IN ('dozwolone', 'umiarkowane', 'zakazane')),
     ilosc NUMERIC(10, 2) NULL,
     jednostka VARCHAR(50) NULL,
     komentarz TEXT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_hashimoto_rodzaj ON hashimoto_produkty(rodzaj);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hashimoto_rodzaj ON hashimoto_produkty(rodzaj);
 CREATE INDEX IF NOT EXISTS idx_hashimoto_status ON hashimoto_produkty(status);
 
 -- 4. Tabela zgłoszeń z formularza pacjentów
@@ -87,7 +87,9 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
     wb = openpyxl.load_workbook(excel_path)
     ws = wb.active
     
-    rows = []
+    STATUS_PRIORITY = {"dozwolone": 1, "umiarkowane": 2, "zakazane": 3}
+    products = {}
+    
     for r in range(3, ws.max_row + 1):
         vals = [ws.cell(r, c).value for c in range(1, 8)]
         name = str(vals[0]).strip() if vals[0] is not None else ""
@@ -111,33 +113,81 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
         
         qty = vals[4]
         try:
-            qty_val = float(qty) if qty is not None else "NULL"
+            qty_val = float(qty) if qty is not None else None
         except (ValueError, TypeError):
-            qty_val = "NULL"
+            qty_val = None
             
-        unit = str(vals[5]).strip().replace("'", "''") if vals[5] else None
-        comment = str(vals[6]).strip().replace("'", "''") if vals[6] else None
+        unit = str(vals[5]).strip() if vals[5] else None
+        comment = str(vals[6]).strip() if vals[6] else None
         
-        name_escaped = name.replace("'", "''")
-        unit_str = f"'{unit}'" if unit else "NULL"
-        comment_str = f"'{comment}'" if comment else "NULL"
+        key = name.lower()
+        if key not in products:
+            products[key] = {
+                "rodzaj": name,
+                "status": status,
+                "ilosc": qty_val,
+                "jednostka": unit,
+                "komentarze": [comment] if comment else []
+            }
+        else:
+            existing = products[key]
+            existing_score = STATUS_PRIORITY.get(existing["status"], 0)
+            new_score = STATUS_PRIORITY.get(status, 0)
+            
+            # Wyższy priorytet (zakazane > umiarkowane > dozwolone)
+            if new_score > existing_score:
+                existing["status"] = status
+                existing["ilosc"] = qty_val
+                existing["jednostka"] = unit
+                if comment and comment not in existing["komentarze"]:
+                    existing["komentarze"].append(comment)
+            elif new_score == existing_score and status == "umiarkowane":
+                if qty_val is not None and existing["ilosc"] is not None:
+                    if qty_val < existing["ilosc"]:
+                        existing["ilosc"] = qty_val
+                        existing["jednostka"] = unit
+                elif qty_val is not None and existing["ilosc"] is None:
+                    existing["ilosc"] = qty_val
+                    existing["jednostka"] = unit
+                if comment and comment not in existing["komentarze"]:
+                    existing["komentarze"].append(comment)
+            elif new_score == existing_score and status == "dozwolone":
+                if comment and comment not in existing["komentarze"]:
+                    existing["komentarze"].append(comment)
+
+    rows = []
+    for item in products.values():
+        name_escaped = item["rodzaj"].replace("'", "''")
+        qty_str = str(item["ilosc"]) if item["ilosc"] is not None else "NULL"
         
-        rows.append(f"('{name_escaped}', '{status}', {qty_val}, {unit_str}, {comment_str})")
+        if item["jednostka"]:
+            u_esc = item["jednostka"].replace("'", "''")
+            unit_str = f"'{u_esc}'"
+        else:
+            unit_str = "NULL"
+            
+        if item["komentarze"]:
+            c_combined = " / ".join(item["komentarze"]).replace("'", "''")
+            comm_str = f"'{c_combined}'"
+        else:
+            comm_str = "NULL"
+            
+        rows.append(f"('{name_escaped}', '{item['status']}', {qty_str}, {unit_str}, {comm_str})")
         
     lines = [
         f"-- =========================================================",
-        f"-- Wypełnienie tabeli produktów {title_name} ({len(rows)} wierszy)",
+        f"-- Wypełnienie tabeli produktów {title_name} ({len(rows)} unikalnych wierszy)",
         f"-- =========================================================",
         f"DROP TABLE IF EXISTS {table_name} CASCADE;",
         f"CREATE TABLE IF NOT EXISTS {table_name} (",
         f"    id SERIAL PRIMARY KEY,",
-        f"    rodzaj VARCHAR(255) NOT NULL,",
+        f"    rodzaj VARCHAR(255) NOT NULL UNIQUE,",
         f"    status VARCHAR(20) NOT NULL CHECK (status IN ('dozwolone', 'umiarkowane', 'zakazane')),",
         f"    ilosc NUMERIC(10, 2) NULL,",
         f"    jednostka VARCHAR(50) NULL,",
         f"    komentarz TEXT NULL",
         f");",
-        f"CREATE INDEX IF NOT EXISTS idx_{table_name}_rodzaj ON {table_name}(rodzaj);",
+        f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table_name}_rodzaj ON {table_name}(rodzaj);",
         f"CREATE INDEX IF NOT EXISTS idx_{table_name}_status ON {table_name}(status);",
         f"",
         f"INSERT INTO {table_name} (rodzaj, status, ilosc, jednostka, komentarz) VALUES"
@@ -146,7 +196,7 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
     
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    print(f"Generated {output_path} with {len(rows)} products")
+    print(f"Generated {output_path} with {len(rows)} unique products (0 duplicates)")
 
 if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
