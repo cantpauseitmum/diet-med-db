@@ -28,15 +28,27 @@ DEFAULT_TDP_AILMENTS = [
     "niedoczynność tarczycy"
 ]
 
+STATUS_PRIORITY = {
+    "zalecane": 1,
+    "dozwolone": 2,
+    "ograniczone": 3,
+    "zakazane": 4
+}
+
 
 def generate_schema_sql(output_path, product_tables):
     """
-    Dynamicznie generuje 01_init_schema.sql uwzględniając wszystkie wykryte tabele produktów.
+    Dynamicznie generuje 01_init_schema.sql uwzględniając wszystkie wykryte tabele produktów
+    oraz usuwając stare, nieaktualne tabele z bazy danych.
     """
     lines = [
         "-- =========================================================",
         "-- Inicjalizacja schematu bazy danych Diet-Med (diet-med-DB)",
         "-- =========================================================",
+        "",
+        "-- Czyszczenie starych, nieużywanych tabel z poprzednich wersji",
+        "DROP TABLE IF EXISTS sibo_produkty CASCADE;",
+        "DROP TABLE IF EXISTS hashimoto_produkty CASCADE;",
         "",
         "-- 1. Tabela z listą dolegliwości (TDP)",
         "CREATE TABLE IF NOT EXISTS dolegliwosci (",
@@ -53,7 +65,7 @@ def generate_schema_sql(output_path, product_tables):
             f"CREATE TABLE IF NOT EXISTS {tbl} (",
             f"    id SERIAL PRIMARY KEY,",
             f"    rodzaj VARCHAR(255) NOT NULL UNIQUE,",
-            f"    status VARCHAR(20) NOT NULL CHECK (status IN ('dozwolone', 'umiarkowane', 'zakazane')),",
+            f"    status VARCHAR(20) NOT NULL CHECK (status IN ('zalecane', 'dozwolone', 'ograniczone', 'zakazane')),",
             f"    ilosc NUMERIC(10, 2) NULL,",
             f"    jednostka VARCHAR(50) NULL,",
             f"    komentarz TEXT NULL",
@@ -109,76 +121,118 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
     wb = openpyxl.load_workbook(excel_path)
     ws = wb.active
 
-    STATUS_PRIORITY = {"dozwolone": 1, "umiarkowane": 2, "zakazane": 3}
+    # Sprawdzenie nagłówków w 2. wierszu w celu wykrycia formatu tabeli (4 kolumny vs 3 kolumny statusów)
+    headers_row = [str(ws.cell(2, c).value).strip().lower() if ws.cell(2, c).value is not None else "" for c in range(1, 9)]
+    is_4_status = any("zielona" in h or "zalecan" in h for h in headers_row)
+
     products = {}
 
     for r in range(3, ws.max_row + 1):
-        vals = [ws.cell(r, c).value for c in range(1, 8)]
-        name = str(vals[0]).strip() if vals[0] is not None else ""
-        if not name:
-            continue
+        if is_4_status:
+            vals = [ws.cell(r, c).value for c in range(1, 9)]
+            name = str(vals[0]).strip() if vals[0] is not None else ""
+            if not name or not any(vals[1:]):
+                continue
 
-        # Jeśli tylko kolumna 1 ma wartość, to nagłówek kategorii
-        if not any(vals[1:]):
-            continue
+            v_green = str(vals[1]).strip().lower() if vals[1] else ""
+            v_yellow = str(vals[2]).strip().lower() if vals[2] else ""
+            v_orange = str(vals[3]).strip().lower() if vals[3] else ""
+            v_red = str(vals[4]).strip().lower() if vals[4] else ""
 
-        status = None
-        if vals[1] and str(vals[1]).strip().lower() == "x":
-            status = "dozwolone"
-        elif vals[2] and str(vals[2]).strip().lower() == "x":
-            status = "umiarkowane"
-        elif vals[3] and str(vals[3]).strip().lower() == "x":
-            status = "zakazane"
-        elif any(vals[4:7]):
-            # Jeśli produkt ma ilość/jednostkę/komentarz bez 'x', to z definicji warunkowość -> umiarkowane
-            status = "umiarkowane"
+            status = None
+            if v_red == "x":
+                status = "zakazane"
+            elif v_orange == "x":
+                status = "ograniczone"
+            elif v_yellow == "x":
+                status = "dozwolone"
+            elif v_green == "x":
+                status = "zalecane"
+            elif any(vals[5:8]):
+                status = "ograniczone"
 
-        if not status:
-            continue
+            if not status:
+                continue
 
-        qty = vals[4]
+            qty = vals[5]
+            unit = str(vals[6]).strip() if vals[6] else None
+            comment = str(vals[7]).strip() if vals[7] else None
+
+        else:
+            # Format legacy (3-status)
+            vals = [ws.cell(r, c).value for c in range(1, 8)]
+            name = str(vals[0]).strip() if vals[0] is not None else ""
+            if not name or not any(vals[1:]):
+                continue
+
+            status = None
+            if vals[1] and str(vals[1]).strip().lower() == "x":
+                status = "dozwolone"
+            elif vals[2] and str(vals[2]).strip().lower() == "x":
+                status = "ograniczone"
+            elif vals[3] and str(vals[3]).strip().lower() == "x":
+                status = "zakazane"
+            elif any(vals[4:7]):
+                status = "ograniczone"
+
+            if not status:
+                continue
+
+            qty = vals[4]
+            unit = str(vals[5]).strip() if vals[5] else None
+            comment = str(vals[6]).strip() if vals[6] else None
+
         try:
             qty_val = float(qty) if qty is not None else None
         except (ValueError, TypeError):
             qty_val = None
-
-        unit = str(vals[5]).strip() if vals[5] else None
-        comment = str(vals[6]).strip() if vals[6] else None
 
         key = name.lower()
         if key not in products:
             products[key] = {
                 "rodzaj": name,
                 "status": status,
-                "ilosc": qty_val,
-                "jednostka": unit,
-                "komentarze": [comment] if comment else []
+                "ilosc": qty_val if status != "zakazane" else None,
+                "jednostka": unit if status != "zakazane" else None,
+                "komentarze": [comment] if (status != "zakazane" and comment) else []
             }
         else:
             existing = products[key]
             existing_score = STATUS_PRIORITY.get(existing["status"], 0)
             new_score = STATUS_PRIORITY.get(status, 0)
 
-            # Wyższy priorytet (zakazane > umiarkowane > dozwolone)
+            # Priorytet: zakazane (4) > ograniczone (3) > dozwolone (2) > zalecane (1)
             if new_score > existing_score:
                 existing["status"] = status
-                existing["ilosc"] = qty_val
-                existing["jednostka"] = unit
-                if comment and comment not in existing["komentarze"]:
-                    existing["komentarze"].append(comment)
-            elif new_score == existing_score and status == "umiarkowane":
-                if qty_val is not None and existing["ilosc"] is not None:
-                    if qty_val < existing["ilosc"]:
+                if status == "zakazane":
+                    existing["ilosc"] = None
+                    existing["jednostka"] = None
+                    existing["komentarze"] = []
+                else:
+                    if qty_val is not None:
+                        existing["ilosc"] = qty_val
+                    if unit:
+                        existing["jednostka"] = unit
+                    if comment and comment not in existing["komentarze"]:
+                        existing["komentarze"].append(comment)
+            elif new_score == existing_score:
+                if status != "zakazane":
+                    if qty_val is not None and existing["ilosc"] is not None:
+                        if qty_val < existing["ilosc"]:
+                            existing["ilosc"] = qty_val
+                            existing["jednostka"] = unit
+                    elif qty_val is not None and existing["ilosc"] is None:
                         existing["ilosc"] = qty_val
                         existing["jednostka"] = unit
-                elif qty_val is not None and existing["ilosc"] is None:
-                    existing["ilosc"] = qty_val
-                    existing["jednostka"] = unit
-                if comment and comment not in existing["komentarze"]:
-                    existing["komentarze"].append(comment)
-            elif new_score == existing_score and status == "dozwolone":
-                if comment and comment not in existing["komentarze"]:
-                    existing["komentarze"].append(comment)
+                    if comment and comment not in existing["komentarze"]:
+                        existing["komentarze"].append(comment)
+            else:
+                if existing["status"] != "zakazane":
+                    if existing["ilosc"] is None and qty_val is not None:
+                        existing["ilosc"] = qty_val
+                        existing["jednostka"] = unit
+                    if comment and comment not in existing["komentarze"]:
+                        existing["komentarze"].append(comment)
 
     rows = []
     for item in products.values():
@@ -207,7 +261,7 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
         f"CREATE TABLE IF NOT EXISTS {table_name} (",
         f"    id SERIAL PRIMARY KEY,",
         f"    rodzaj VARCHAR(255) NOT NULL UNIQUE,",
-        f"    status VARCHAR(20) NOT NULL CHECK (status IN ('dozwolone', 'umiarkowane', 'zakazane')),",
+        f"    status VARCHAR(20) NOT NULL CHECK (status IN ('zalecane', 'dozwolone', 'ograniczone', 'zakazane')),",
         f"    ilosc NUMERIC(10, 2) NULL,",
         f"    jednostka VARCHAR(50) NULL,",
         f"    komentarz TEXT NULL",
@@ -232,25 +286,30 @@ def parse_ailment_from_filename(path):
     if 'baza' in fn_norm.lower() or fn_norm.lower() == 'tabela produktów.xlsx':
         return None
 
-    m = re.search(r'tabela\s+produkt[oó]w\s+(.+)\.xlsx', fn_norm, re.IGNORECASE)
+    m = re.search(r'tabela\s+produkt[oó]w[\s\-_]*(.+)\.xlsx', fn_norm, re.IGNORECASE)
     if not m:
         return None
 
     raw = m.group(1).strip()
-    raw = re.sub(r'-\d+$', '', raw).strip()
+    raw = re.sub(r'-\d+$', '', raw).strip(' -_')
 
-    if 'insulino' in raw.lower():
+    raw_lower = raw.lower()
+    if 'insulino' in raw_lower:
         code = 'insulinooporność'
         table_name = 'insulinoopornosc_produkty'
         title = 'Insulinooporność'
-    elif 'sibo' in raw.lower():
+    elif 'sibo' in raw_lower:
         code = 'SIBO'
         table_name = 'sibo_produkty'
         title = 'SIBO'
-    elif 'hashimoto' in raw.lower():
+    elif 'hashimoto' in raw_lower:
         code = 'hashimoto'
         table_name = 'hashimoto_produkty'
         title = 'Hashimoto'
+    elif 'niedoczynno' in raw_lower:
+        code = 'niedoczynność tarczycy'
+        table_name = 'niedoczynnosc_tarczycy_produkty'
+        title = 'Niedoczynność tarczycy'
     else:
         clean_ascii = raw.lower().translate(PL_TO_ASCII)
         clean_slug = re.sub(r'[^a-z0-9]+', '_', clean_ascii).strip('_')
@@ -298,8 +357,13 @@ if __name__ == "__main__":
     product_tables = []
     extra_ailments = []
 
-    # Kanoniczny porządek dla istniejących dolegliwości, a nowe po nich
-    CANONICAL_ORDER = {"sibo": 3, "hashimoto": 4, "insulinoopornosc": 5}
+    # Kanoniczny porządek dla znanych dolegliwości
+    CANONICAL_ORDER = {
+        "insulinoopornosc": 3,
+        "niedoczynnosc_tarczycy": 4,
+        "sibo": 5,
+        "hashimoto": 6
+    }
     def sort_key(item):
         code, info = item
         clean = info['table_name'].replace('_produkty', '').lower()
@@ -311,7 +375,6 @@ if __name__ == "__main__":
         title = info['title']
         file_path = info['file_path']
         clean_name = table_name.replace('_produkty', '')
-        # Użyj kanonicznego numeru jeśli znany, w przeciwnym razie inkrementuj
         curr_idx = CANONICAL_ORDER.get(clean_name, seed_idx)
         seed_filename = f"{curr_idx:02d}_seed_{clean_name}.sql"
         output_path = os.path.join(init_dir, seed_filename)
@@ -330,3 +393,4 @@ if __name__ == "__main__":
         for f in glob.glob(os.path.join(init_dir, "*.sql")):
             shutil.copy2(f, backend_seeds_dir)
         print(f"Copied all seed scripts to {backend_seeds_dir}")
+

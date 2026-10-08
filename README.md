@@ -5,13 +5,13 @@ Kontener bazy danych PostgreSQL 16 dla projektu **Diet-Med**, zoptymalizowany do
 ## Zawartość repozytorium
 - `init-scripts/01_init_schema.sql` – definicja tabel:
   - `dolegliwosci`: kolumny `id` (PK), `kod` (NOT NULL UNIQUE)
-  - `sibo_produkty`: kolumny `id` (PK), `rodzaj` (NOT NULL), `status` (NOT NULL), `ilosc` (NULL), `jednostka` (NULL), `komentarz` (NULL)
-  - `hashimoto_produkty`: kolumny `id` (PK), `rodzaj` (NOT NULL), `status` (NOT NULL), `ilosc` (NULL), `jednostka` (NULL), `komentarz` (NULL)
+  - `insulinoopornosc_produkty`: kolumny `id` (PK), `rodzaj` (NOT NULL UNIQUE), `status` (NOT NULL CHECK 'zalecane', 'dozwolone', 'ograniczone', 'zakazane'), `ilosc`, `jednostka`, `komentarz`
+  - `niedoczynnosc_tarczycy_produkty`: kolumny `id` (PK), `rodzaj` (NOT NULL UNIQUE), `status` (NOT NULL CHECK 'zalecane', 'dozwolone', 'ograniczone', 'zakazane'), `ilosc`, `jednostka`, `komentarz`
   - `zgloszenia`: rejestracja zgłoszeń pacjentów z formularza TDP
 - `init-scripts/02_seed_tdp.sql` – 12 dolegliwości z TDP
-- `init-scripts/03_seed_sibo.sql` – pełna baza 354 produktów SIBO z ujednoliconymi komentarzami
-- `init-scripts/04_seed_hashimoto.sql` – pełna baza 354 produktów Hashimoto z ujednoliconymi komentarzami
-- `scripts/export_excel_to_sql.py` – skrypt do generacji plików SQL z plików Excela (SIBO i Hashimoto)
+- `init-scripts/03_seed_insulinoopornosc.sql` – baza 384 unikalnych produktów Insulinooporność
+- `init-scripts/04_seed_niedoczynnosc_tarczycy.sql` – baza 384 unikalnych produktów Niedoczynność tarczycy
+- `scripts/export_excel_to_sql.py` – skrypt do automatycznej detekcji i generacji plików SQL z aktualnych plików Excela
 - `Dockerfile` – obraz oparty o `postgres:16-alpine`
 
 ## Uruchomienie lokalne (Docker)
