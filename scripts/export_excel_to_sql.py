@@ -46,11 +46,8 @@ def generate_schema_sql(output_path, product_tables):
         "-- Inicjalizacja schematu bazy danych Diet-Med (diet-med-DB)",
         "-- =========================================================",
         "",
-        "-- Czyszczenie starych, nieużywanych tabel z poprzednich wersji",
-        "DROP TABLE IF EXISTS sibo_produkty CASCADE;",
-        "DROP TABLE IF EXISTS hashimoto_produkty CASCADE;",
-        "",
         "-- 1. Tabela z listą dolegliwości (TDP)",
+        "DROP TABLE IF EXISTS dolegliwosci CASCADE;",
         "CREATE TABLE IF NOT EXISTS dolegliwosci (",
         "    id SERIAL PRIMARY KEY,",
         "    kod VARCHAR(100) NOT NULL UNIQUE",
@@ -77,6 +74,7 @@ def generate_schema_sql(output_path, product_tables):
 
     lines.extend([
         f"-- Tabela zgłoszeń z formularza pacjentów",
+        "DROP TABLE IF EXISTS zgloszenia CASCADE;",
         "CREATE TABLE IF NOT EXISTS zgloszenia (",
         "    id SERIAL PRIMARY KEY,",
         "    email VARCHAR(255) NULL,",
@@ -107,6 +105,7 @@ def generate_tdp_sql(output_path, extra_ailments=None):
         "-- =========================================================",
         "-- Wypełnienie tabeli dolegliwości (TDP)",
         "-- =========================================================",
+        "TRUNCATE TABLE dolegliwosci RESTART IDENTITY CASCADE;",
         "INSERT INTO dolegliwosci (kod) VALUES"
     ]
     vals = [f"('{kod}')" for kod in ailments]
@@ -194,7 +193,7 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
                 "status": status,
                 "ilosc": qty_val if status != "zakazane" else None,
                 "jednostka": unit if status != "zakazane" else None,
-                "komentarze": [comment] if (status != "zakazane" and comment) else []
+                "komentarze": [comment] if comment else []
             }
         else:
             existing = products[key]
@@ -202,19 +201,13 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
             new_score = STATUS_PRIORITY.get(status, 0)
 
             # Priorytet: zakazane (4) > ograniczone (3) > dozwolone (2) > zalecane (1)
+            # 1. Zmiana klasyfikacji na bardziej rygorystyczną -> czyszczenie poprzednich danych
             if new_score > existing_score:
                 existing["status"] = status
-                if status == "zakazane":
-                    existing["ilosc"] = None
-                    existing["jednostka"] = None
-                    existing["komentarze"] = []
-                else:
-                    if qty_val is not None:
-                        existing["ilosc"] = qty_val
-                    if unit:
-                        existing["jednostka"] = unit
-                    if comment and comment not in existing["komentarze"]:
-                        existing["komentarze"].append(comment)
+                existing["ilosc"] = qty_val if status != "zakazane" else None
+                existing["jednostka"] = unit if status != "zakazane" else None
+                existing["komentarze"] = [comment] if comment else []
+            # 2. Ten sam status -> brak zmiany klasyfikacji, łączenie cech w ramach tej samej grupy
             elif new_score == existing_score:
                 if status != "zakazane":
                     if qty_val is not None and existing["ilosc"] is not None:
@@ -224,15 +217,11 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
                     elif qty_val is not None and existing["ilosc"] is None:
                         existing["ilosc"] = qty_val
                         existing["jednostka"] = unit
-                    if comment and comment not in existing["komentarze"]:
-                        existing["komentarze"].append(comment)
+                if comment and comment not in existing["komentarze"]:
+                    existing["komentarze"].append(comment)
+            # 3. Nowy rekord ma niższy priorytet -> ignorujemy cechy z niższego statusu
             else:
-                if existing["status"] != "zakazane":
-                    if existing["ilosc"] is None and qty_val is not None:
-                        existing["ilosc"] = qty_val
-                        existing["jednostka"] = unit
-                    if comment and comment not in existing["komentarze"]:
-                        existing["komentarze"].append(comment)
+                pass
 
     rows = []
     for item in products.values():
@@ -310,11 +299,19 @@ def parse_ailment_from_filename(path):
         code = 'niedoczynność tarczycy'
         table_name = 'niedoczynnosc_tarczycy_produkty'
         title = 'Niedoczynność tarczycy'
+    elif 'lipoedema' in raw_lower:
+        code = 'lipoedema'
+        table_name = 'lipoedema_produkty'
+        title = 'Lipoedema'
+    elif 'histamin' in raw_lower:
+        code = 'nietolerancja histaminy'
+        table_name = 'nietolerancja_histaminy_produkty'
+        title = 'Nietolerancja histaminy'
     else:
         clean_ascii = raw.lower().translate(PL_TO_ASCII)
         clean_slug = re.sub(r'[^a-z0-9]+', '_', clean_ascii).strip('_')
         table_name = f'{clean_slug}_produkty'
-        code = raw
+        code = raw_lower
         title = raw.capitalize()
 
     return {
@@ -362,7 +359,9 @@ if __name__ == "__main__":
         "insulinoopornosc": 3,
         "niedoczynnosc_tarczycy": 4,
         "sibo": 5,
-        "hashimoto": 6
+        "hashimoto": 6,
+        "nietolerancja_histaminy": 7,
+        "lipoedema": 8
     }
     def sort_key(item):
         code, info = item
