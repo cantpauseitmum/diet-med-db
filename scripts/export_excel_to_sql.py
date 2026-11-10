@@ -65,10 +65,12 @@ def generate_schema_sql(output_path, product_tables):
             f"    status VARCHAR(20) NOT NULL CHECK (status IN ('zalecane', 'dozwolone', 'ograniczone', 'zakazane')),",
             f"    ilosc NUMERIC(10, 2) NULL,",
             f"    jednostka VARCHAR(50) NULL,",
-            f"    komentarz TEXT NULL",
+            f"    komentarz TEXT NULL,",
+            f"    kategoria VARCHAR(100) NULL",
             f");",
             f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{tbl}_rodzaj ON {tbl}(rodzaj);",
             f"CREATE INDEX IF NOT EXISTS idx_{tbl}_status ON {tbl}(status);",
+            f"CREATE INDEX IF NOT EXISTS idx_{tbl}_kategoria ON {tbl}(kategoria);",
             ""
         ])
 
@@ -80,6 +82,7 @@ def generate_schema_sql(output_path, product_tables):
         "    email VARCHAR(255) NULL,",
         "    dolegliwosci_ids INTEGER[] NOT NULL,",
         "    pdf_path VARCHAR(255) NULL,",
+        "    xlsx_path VARCHAR(255) NULL,",
         "    status VARCHAR(50) DEFAULT 'wygenerowano',",
         "    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
         ");"
@@ -125,12 +128,16 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
     is_4_status = any("zielona" in h or "zalecan" in h for h in headers_row)
 
     products = {}
+    current_category = "Inne"
 
     for r in range(3, ws.max_row + 1):
         if is_4_status:
             vals = [ws.cell(r, c).value for c in range(1, 9)]
             name = str(vals[0]).strip() if vals[0] is not None else ""
-            if not name or not any(vals[1:]):
+            if not name:
+                continue
+            if not any(vals[1:]):
+                current_category = name.capitalize()
                 continue
 
             v_green = str(vals[1]).strip().lower() if vals[1] else ""
@@ -161,7 +168,10 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
             # Format legacy (3-status)
             vals = [ws.cell(r, c).value for c in range(1, 8)]
             name = str(vals[0]).strip() if vals[0] is not None else ""
-            if not name or not any(vals[1:]):
+            if not name:
+                continue
+            if not any(vals[1:]):
+                current_category = name.capitalize()
                 continue
 
             status = None
@@ -193,10 +203,13 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
                 "status": status,
                 "ilosc": qty_val if status != "zakazane" else None,
                 "jednostka": unit if status != "zakazane" else None,
-                "komentarze": [comment] if comment else []
+                "komentarze": [comment] if comment else [],
+                "kategoria": current_category
             }
         else:
             existing = products[key]
+            if current_category and not existing.get("kategoria"):
+                existing["kategoria"] = current_category
             existing_score = STATUS_PRIORITY.get(existing["status"], 0)
             new_score = STATUS_PRIORITY.get(status, 0)
 
@@ -240,7 +253,13 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
         else:
             comm_str = "NULL"
 
-        rows.append(f"('{name_escaped}', '{item['status']}', {qty_str}, {unit_str}, {comm_str})")
+        if item.get("kategoria"):
+            k_esc = item["kategoria"].replace("'", "''")
+            kat_str = f"'{k_esc}'"
+        else:
+            kat_str = "NULL"
+
+        rows.append(f"('{name_escaped}', '{item['status']}', {qty_str}, {unit_str}, {comm_str}, {kat_str})")
 
     lines = [
         f"-- =========================================================",
@@ -253,12 +272,14 @@ def generate_table_sql(excel_path, table_name, title_name, output_path):
         f"    status VARCHAR(20) NOT NULL CHECK (status IN ('zalecane', 'dozwolone', 'ograniczone', 'zakazane')),",
         f"    ilosc NUMERIC(10, 2) NULL,",
         f"    jednostka VARCHAR(50) NULL,",
-        f"    komentarz TEXT NULL",
+        f"    komentarz TEXT NULL,",
+        f"    kategoria VARCHAR(100) NULL",
         f");",
         f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table_name}_rodzaj ON {table_name}(rodzaj);",
         f"CREATE INDEX IF NOT EXISTS idx_{table_name}_status ON {table_name}(status);",
+        f"CREATE INDEX IF NOT EXISTS idx_{table_name}_kategoria ON {table_name}(kategoria);",
         f"",
-        f"INSERT INTO {table_name} (rodzaj, status, ilosc, jednostka, komentarz) VALUES"
+        f"INSERT INTO {table_name} (rodzaj, status, ilosc, jednostka, komentarz, kategoria) VALUES"
     ]
     lines.append(",\n".join(rows) + ";")
 
